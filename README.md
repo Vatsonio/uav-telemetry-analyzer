@@ -90,7 +90,7 @@ docker compose up --build
 export GEMINI_API_KEY=your_key_here
 ```
 
-Безкоштовний ключ: https://aistudio.google.com/apikey
+Безкоштовний ключ: [https://aistudio.google.com/apikey](https://aistudio.google.com/app/api-keys)
 
 ---
 
