@@ -1,0 +1,8 @@
+pymavlink>=2.4.40
+pandas>=2.0
+numpy>=1.24
+plotly>=5.18
+streamlit>=1.30
+requests>=2.31
+scipy>=1.12
+srtm.py>=0.3.7

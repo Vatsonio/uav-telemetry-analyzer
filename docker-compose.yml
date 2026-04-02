@@ -1,0 +1,10 @@
+services:
+  uav-analyzer:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    volumes:
+      - .:/app
+    restart: unless-stopped
