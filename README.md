@@ -59,7 +59,7 @@ docs/
 
 ```bash
 # 1. Клонувати репозиторiй
-git clone https://github.com/<your-repo>/uav-telemetry-analyzer.git
+git clone https://github.com/Vatsonio/uav-telemetry-analyzer
 cd uav-telemetry-analyzer
 
 # 2. Створити вiртуальне середовище
