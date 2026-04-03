@@ -123,7 +123,7 @@ def parse_bin_file(filepath: str) -> dict[str, pd.DataFrame]:
     gps_df = pd.DataFrame(gps_records)
     gps_source = "GPS"
 
-    # Fallback: якщо GPS порожній або всі записи без фіксації — використовуємо AHR2
+    # Fallback: якщо GPS порожній або всі записи без фіксації - використовуємо AHR2
     use_ahr2 = False
     if gps_df.empty:
         use_ahr2 = True
@@ -144,11 +144,11 @@ def parse_bin_file(filepath: str) -> dict[str, pd.DataFrame]:
             gps_df = pd.DataFrame({
                 "time_us": ahr2_valid["time_us"],
                 "instance": 0,
-                "status": 6,  # AHR2 — EKF estimated, маркуємо як валідний
+                "status": 6,  # AHR2 - EKF estimated, маркуємо як валідний
                 "lat": ahr2_valid["lat"],
                 "lng": ahr2_valid["lng"],
                 "alt": ahr2_valid["alt"],
-                "speed": 0.0,  # AHR2 не містить швидкості — обчислимо нижче
+                "speed": 0.0,  # AHR2 не містить швидкості - обчислимо нижче
                 "vz": 0.0,
                 "course": ahr2_valid["yaw"],
                 "hdop": 0.0,
@@ -161,7 +161,7 @@ def parse_bin_file(filepath: str) -> dict[str, pd.DataFrame]:
     # --- Побудова IMU DataFrame ---
     imu_df = pd.DataFrame(imu_records)
 
-    # Fallback: якщо IMU порожній — зливаємо ACC + GYR
+    # Fallback: якщо IMU порожній - зливаємо ACC + GYR
     if imu_df.empty and acc_records and gyr_records:
         imu_df = _merge_acc_gyr(acc_records, gyr_records)
 

@@ -329,7 +329,7 @@ def create_speed_profile(gps_df: pd.DataFrame, speed_unit: str = "kmh") -> go.Fi
     v_speed = gps_df["vz"].abs().values * factor
     alt_gain = gps_df["alt"].values - gps_df["alt"].values[0]
 
-    # Адаптивний діапазон осі Y — базується на горизонтальній швидкості,
+    # Адаптивний діапазон осі Y - базується на горизонтальній швидкості,
     # але з мінімум 5 м/с (18 км/год) щоб vz спайки не заповнювали весь графік
     # коли дрон майже нерухомий (h_speed≈0). vz-аномалії що перевищують ymax
     # все одно показуються як бари, але лише реальні викиди.
@@ -439,3 +439,82 @@ def create_imu_comparison(
     )
 
     return fig
+
+
+def create_battery_chart(bat_df: pd.DataFrame) -> go.Figure:
+    """Графік напруги та струму батареї від часу."""
+    if bat_df.empty:
+        return go.Figure()
+
+    t = bat_df["time_s"].values - bat_df["time_s"].values[0]
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=t, y=bat_df["voltage"].values,
+        name="Напруга (В)",
+        line=dict(color="orange", width=2),
+        hovertemplate="Час: %{x:.1f} с<br>Напруга: %{y:.2f} В<extra></extra>",
+    ))
+
+    if "current" in bat_df.columns:
+        fig.add_trace(go.Scatter(
+            x=t, y=bat_df["current"].values,
+            name="Струм (А)",
+            yaxis="y2",
+            line=dict(color="red", width=1),
+            hovertemplate="Час: %{x:.1f} с<br>Струм: %{y:.1f} А<extra></extra>",
+        ))
+
+    fig.update_layout(
+        title="Батарея",
+        xaxis_title="Час (с)",
+        yaxis=dict(title="Напруга (В)"),
+        yaxis2=dict(title="Струм (А)", overlaying="y", side="right") if "current" in bat_df.columns else {},
+        height=350,
+        legend=dict(x=0, y=1.12, orientation="h"),
+    )
+
+    return fig
+
+
+def create_2d_map(gps_df: pd.DataFrame, phases: list[dict] | None = None):
+    """Створює 2D карту траєкторії з Folium."""
+    import folium
+
+    if gps_df.empty:
+        return None
+
+    center_lat = gps_df["lat"].mean()
+    center_lng = gps_df["lng"].mean()
+    m = folium.Map(location=[center_lat, center_lng], zoom_start=16, tiles="OpenStreetMap")
+
+    coords = list(zip(gps_df["lat"].values, gps_df["lng"].values))
+    folium.PolyLine(coords, color="blue", weight=3, opacity=0.8).add_to(m)
+
+    folium.Marker(
+        [gps_df["lat"].iloc[0], gps_df["lng"].iloc[0]],
+        popup="START",
+        icon=folium.Icon(color="green", icon="play", prefix="fa"),
+    ).add_to(m)
+    folium.Marker(
+        [gps_df["lat"].iloc[-1], gps_df["lng"].iloc[-1]],
+        popup="END",
+        icon=folium.Icon(color="red", icon="stop", prefix="fa"),
+    ).add_to(m)
+
+    phase_colors = {"takeoff": "green", "cruise": "blue", "landing": "red", "hover": "orange"}
+    if phases:
+        for ph in phases:
+            subset = gps_df[(gps_df["time_s"] >= ph["start"]) & (gps_df["time_s"] <= ph["end"])]
+            if len(subset) > 1:
+                ph_coords = list(zip(subset["lat"].values, subset["lng"].values))
+                folium.PolyLine(
+                    ph_coords,
+                    color=phase_colors.get(ph["phase"], "gray"),
+                    weight=5, opacity=0.9,
+                    popup=f"{ph['phase']} ({ph['start']:.0f}-{ph['end']:.0f} с)",
+                ).add_to(m)
+
+    m.fit_bounds([[gps_df["lat"].min(), gps_df["lng"].min()],
+                  [gps_df["lat"].max(), gps_df["lng"].max()]])
+    return m

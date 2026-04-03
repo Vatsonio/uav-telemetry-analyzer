@@ -8,21 +8,21 @@
 
 Теоретичне обґрунтування:
 
-    Метод трапецій — чисельний метод інтегрування, що апроксимує площу під
+    Метод трапецій - чисельний метод інтегрування, що апроксимує площу під
     кривою сумою трапецій. Для функції f(t), дискретизованої у точках t_i:
         ∫f(t)dt ≈ Σ [0.5 · (f(t_i) + f(t_{i+1})) · (t_{i+1} - t_i)]
 
-    Похибка методу: O(h²) локально, O(h) глобально, де h — крок дискретизації.
+    Похибка методу: O(h²) локально, O(h) глобально, де h - крок дискретизації.
 
     Інтегрування прискорень IMU:
         Прискорення (м/с²) -> інтегрування -> швидкість (м/с)
         Швидкість (м/с) -> інтегрування -> переміщення (м)
 
     ВАЖЛИВО: Подвійне інтегрування IMU накопичує дрейф через:
-    1. Зміщення нуля акселерометра (bias) — призводить до лінійного дрейфу
+    1. Зміщення нуля акселерометра (bias) - призводить до лінійного дрейфу
        швидкості та квадратичного дрейфу позиції
-    2. Шум датчика — випадковий дрейф (random walk)
-    3. Похибка видалення гравітації — потребує точної орієнтації (кватерніони)
+    2. Шум датчика - випадковий дрейф (random walk)
+    3. Похибка видалення гравітації - потребує точної орієнтації (кватерніони)
 
     Тому для реальних метрик швидкості використовується GPS (Spd, VZ),
     а інтегрування IMU демонструється як алгоритмічна вимога завдання.
@@ -32,7 +32,7 @@
         Для перетворення у NED/ENU frame потрібна матриця обертання, яка
         будується з кватерніонів орієнтації. Кватерніони q = (w, x, y, z) мають
         перевагу над кутами Ейлера (roll, pitch, yaw), оскільки не страждають
-        від gimbal lock — ситуації, коли при pitch = ±90° втрачається один
+        від gimbal lock - ситуації, коли при pitch = ±90° втрачається один
         ступінь свободи, і два кути стають нерозрізненними.
 """
 
@@ -132,7 +132,7 @@ def compute_flight_metrics(gps_df: pd.DataFrame, imu_df: pd.DataFrame) -> dict:
         total_duration : float (с)
         total_distance : float (м)
         imu_velocities : pd.DataFrame (результат інтегрування IMU)
-        max_imu_speed : float (м/с) — максимальна швидкість з IMU інтегрування
+        max_imu_speed : float (м/с) - максимальна швидкість з IMU інтегрування
     """
     metrics = {}
 
@@ -202,3 +202,121 @@ def compute_flight_metrics(gps_df: pd.DataFrame, imu_df: pd.DataFrame) -> dict:
         metrics["imu_velocities"] = pd.DataFrame()
 
     return metrics
+
+
+def detect_flight_phases(gps_df: pd.DataFrame) -> list[dict]:
+    """
+    Автоматична детекція фаз польоту: takeoff, cruise, hover, landing.
+
+    Підхід: поділ польоту на 3 зони за висотним профілем (згладженим):
+    - takeoff: від старту до моменту виходу на робочу висоту (перші 20% набору)
+    - landing: від початку фінального зниження до кінця
+    - hover: горизонтальна швидкість < 1 м/с в середній частині
+    - cruise: решта
+    """
+    if gps_df.empty or len(gps_df) < 10:
+        return []
+
+    times = gps_df["time_s"].values
+    speed = gps_df["speed"].values
+    alt = gps_df["alt"].values
+    n = len(alt)
+
+    # Згладжена висота для стабільного профілю
+    alt_smooth = pd.Series(alt).rolling(window=max(n // 20, 3), center=True, min_periods=1).mean().values
+
+    alt_min = alt_smooth.min()
+    alt_max = alt_smooth.max()
+    alt_range = alt_max - alt_min
+
+    if alt_range < 2.0:
+        # Майже плоский політ - все hover або cruise
+        avg_speed = speed.mean()
+        phase = "hover" if avg_speed < 1.0 else "cruise"
+        return [{"phase": phase, "start": float(times[0]), "end": float(times[-1]),
+                 "duration": round(float(times[-1] - times[0]), 1)}]
+
+    # Порогова висота: 20% від діапазону над мінімумом
+    threshold = alt_min + alt_range * 0.2
+
+    # Знаходимо takeoff: перший відрізок де висота росте від початку до threshold
+    takeoff_end = 0
+    for i in range(n):
+        if alt_smooth[i] >= threshold:
+            takeoff_end = i
+            break
+
+    # Знаходимо landing: останній відрізок де висота падає нижче threshold до кінця
+    landing_start = n - 1
+    for i in range(n - 1, -1, -1):
+        if alt_smooth[i] >= threshold:
+            landing_start = i
+            break
+
+    # Будуємо фази
+    phases = []
+
+    # Takeoff
+    if takeoff_end > 0 and (times[takeoff_end] - times[0]) > 2.0:
+        phases.append({
+            "phase": "takeoff",
+            "start": float(times[0]),
+            "end": float(times[takeoff_end]),
+            "duration": round(float(times[takeoff_end] - times[0]), 1),
+        })
+
+    # Середня частина: cruise або hover
+    mid_start = takeoff_end if takeoff_end > 0 else 0
+    mid_end = landing_start if landing_start < n - 1 else n - 1
+
+    if mid_start < mid_end:
+        mid_speed = speed[mid_start:mid_end + 1]
+        mid_times = times[mid_start:mid_end + 1]
+
+        # Розбиваємо середню частину на hover та cruise
+        is_hover = mid_speed < 1.0
+        current_hover = is_hover[0]
+        seg_start = 0
+
+        for j in range(1, len(mid_speed)):
+            if is_hover[j] != current_hover:
+                duration = mid_times[j - 1] - mid_times[seg_start]
+                if duration > 3.0:
+                    phases.append({
+                        "phase": "hover" if current_hover else "cruise",
+                        "start": float(mid_times[seg_start]),
+                        "end": float(mid_times[j - 1]),
+                        "duration": round(duration, 1),
+                    })
+                current_hover = is_hover[j]
+                seg_start = j
+
+        # Останній сегмент середньої частини
+        duration = mid_times[-1] - mid_times[seg_start]
+        if duration > 3.0:
+            phases.append({
+                "phase": "hover" if current_hover else "cruise",
+                "start": float(mid_times[seg_start]),
+                "end": float(mid_times[-1]),
+                "duration": round(duration, 1),
+            })
+
+    # Landing
+    if landing_start < n - 1 and (times[-1] - times[landing_start]) > 2.0:
+        phases.append({
+            "phase": "landing",
+            "start": float(times[landing_start]),
+            "end": float(times[-1]),
+            "duration": round(float(times[-1] - times[landing_start]), 1),
+        })
+
+    # Злиття сусідніх однакових фаз (з проміжком < 5с)
+    merged = []
+    for ph in phases:
+        if merged and merged[-1]["phase"] == ph["phase"] and (ph["start"] - merged[-1]["end"]) < 5.0:
+            merged[-1]["end"] = ph["end"]
+            merged[-1]["duration"] = round(merged[-1]["end"] - merged[-1]["start"], 1)
+        else:
+            merged.append(ph.copy())
+
+    return merged

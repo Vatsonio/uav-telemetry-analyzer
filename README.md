@@ -1,7 +1,7 @@
 # UAV Flight Telemetry Analyzer
 
 **Команда:** TheDivass
-**Версiя:** 1.4
+**Версiя:** 1.6
 **Завдання:** BEST - Система аналiзу телеметрiї та 3D-вiзуалiзацiї польотiв БПЛА
 
 ---
@@ -19,6 +19,9 @@
 - **GPS vs IMU порiвняння** - наочна демонстрацiя дрейфу при подвiйному iнтегруваннi акселерометра.
 - **AI-звiт** - автоматична генерацiя текстового аналiзу польоту через Google Gemini API (безкоштовний тариф) з fallback на шаблонний звiт.
 - **Детекцiя аномалiй** - евристичне виявлення рiзких втрат висоти, перевищення швидкостi, високих прискорень.
+- **2D-карта траєкторiї** - iнтерактивна карта Folium/OpenStreetMap з маркерами старту/фiнiшу та кольоровими фазами польоту.
+- **Автодетекцiя фаз польоту** - евристичне визначення злiт/круїз/зависання/посадка на основi швидкостей та висоти.
+- **Монiторинг батареї** - графiк напруги та струму батареї у часi.
 - **Налаштування** - одиницi швидкостi (км/год, м/с), колiрна схема, згладжування, фiльтрацiя за часовим дiапазоном, експорт метрик у CSV.
 
 ---
@@ -32,7 +35,9 @@
 | Веб-iнтерфейс | **Streamlit** | Мiнiмальний boilerplate, вбудованi вiджети, iнтерактивнiсть |
 | 3D-графiки | **Plotly** | Iнтерактивнi 3D Scatter + Surface, hover-пiдказки, zoom/rotate |
 | Рельєф | **srtm.py, scipy** | Безкоштовнi NASA SRTM данi, iнтерполяцiя висот |
+| 2D-карта | **Folium, streamlit-folium** | OpenStreetMap, маркери, фази польоту на реальнiй картi |
 | AI-аналiз | **Google Gemini API** | Безкоштовний тариф, якiсна генерацiя тексту українською |
+| Тестування | **pytest** | Юнiт-тести для coordinates, metrics, flight phases |
 | Контейнеризацiя | **Docker** | Вiдтворюване середовище, простий деплой |
 
 ---
@@ -44,11 +49,14 @@ app.py                  # Streamlit entry point
 src/
   parser.py             # .BIN → GPS + IMU DataFrames (fallbacks: AHR2, ACC+GYR)
   coordinates.py        # Haversine, WGS-84 → ENU конвертацiя
-  metrics.py            # Трапецiєвидне iнтегрування, метрики польоту
-  visualization.py      # 3D Plotly графiки, SRTM terrain, профiль швидкостi
+  metrics.py            # Трапецiєвидне iнтегрування, метрики, детекцiя фаз польоту
+  visualization.py      # 3D Plotly, SRTM terrain, 2D Folium карта, батарея
   ai_report.py          # Gemini API + шаблонний звiт, детекцiя аномалiй
 docs/
   theory.md             # Математичне обгрунтування (WGS-84, ENU, Haversine, кватернiони)
+tests/
+  test_coordinates.py   # Тести Haversine, WGS-84 → ENU
+  test_metrics.py       # Тести iнтегрування, метрик, фаз польоту
 ```
 
 ---
@@ -97,6 +105,61 @@ export GEMINI_API_KEY=your_key_here
 ## Вхiднi данi
 
 Додаток працює з бiнарними .BIN лог-файлами Ardupilot. Покладiть файли в кореневу директорiю проєкту або завантажте через iнтерфейс.
+
+---
+
+## Вiдповiднiсть вимогам ТЗ
+
+### MVP (40%)
+
+| Вимога | Статус | Реалiзацiя |
+|--------|--------|------------|
+| Парсинг .BIN логiв Ardupilot (GPS, IMU) | ✅ | `src/parser.py` - pymavlink, автоматичнi fallbacks (AHR2, ACC+GYR) |
+| Частоти семплювання та одиницi вимiрювань | ✅ | `src/parser.py:_compute_info()` - GPS/IMU Hz, одиницi в metadata |
+| Структурований DataFrame | ✅ | pandas DataFrame з колонками time_s, lat, lng, alt, speed, vz, acc_x/y/z |
+| Макс. горизонтальна/вертикальна швидкiсть | ✅ | `src/metrics.py:compute_flight_metrics()` з фiльтрацiєю викидiв (P99) |
+| Макс. прискорення | ✅ | Повний вектор прискорення мiнус гравiтацiя |
+| Макс. набiр висоти | ✅ | `alt.max() - alt[0]` |
+| Тривалiсть польоту | ✅ | З GPS timestamp |
+| Дистанцiя через Haversine | ✅ | `src/coordinates.py:haversine()` - числово стабiльна формула |
+| Швидкостi з IMU через трапецiєвидне iнтегрування | ✅ | `src/metrics.py:trapezoidal_integrate()` + `velocity_from_imu()` |
+| WGS-84 → ENU конвертацiя | ✅ | `src/coordinates.py:wgs84_to_enu()` - лiнеаризована + ECEF задокументовано |
+| 3D-вiзуалiзацiя з колоруванням за швидкiстю/часом | ✅ | `src/visualization.py` - Plotly 3D Scatter, 6 colorscale |
+
+### Алгоритмiчна база (20%)
+
+| Вимога | Статус | Реалiзацiя |
+|--------|--------|------------|
+| Haversine formula | ✅ | `src/coordinates.py:haversine()` |
+| Трапецiєвидне iнтегрування | ✅ | `src/metrics.py:trapezoidal_integrate()` |
+| WGS-84 / ENU системи координат | ✅ | `src/coordinates.py:wgs84_to_enu()` + `docs/theory.md` |
+| Теоретичне обгрунтування | ✅ | `docs/theory.md` - WGS-84, ENU, ECEF, Haversine, кватернiони, gimbal lock, дрейф IMU |
+
+### Nice-to-have (15%)
+
+| Вимога | Статус | Реалiзацiя |
+|--------|--------|------------|
+| Веб-застосунок (Streamlit) | ✅ | `app.py` - завантаження файлiв, налаштування, iнтерактивнi графiки |
+| AI-асистент (LLM) | ✅ | `src/ai_report.py` - Google Gemini API + шаблонний fallback |
+| Детекцiя аномалiй | ✅ | Рiзка втрата висоти, перевищення швидкостi, високе прискорення |
+| 2D-карта траєкторiї | ✅ | Folium/OpenStreetMap з фазами польоту |
+| Автодетекцiя фаз польоту | ✅ | Злiт / круїз / зависання / посадка |
+| Монiторинг батареї | ✅ | Графiк напруги та струму |
+| SRTM рельєф мiсцевостi | ✅ | NASA SRTM данi пiд 3D траєкторiєю |
+| GPS vs IMU порiвняння | ✅ | Демонстрацiя дрейфу iнтегрування |
+| Docker | ✅ | `Dockerfile` + `docker-compose.yml` |
+| Юнiт-тести | ✅ | 22 тести (pytest): coordinates, metrics, flight phases |
+| Експорт метрик CSV | ✅ | Кнопка завантаження в sidebar |
+
+---
+
+## Тестування
+
+```bash
+python -m pytest tests/ -v
+```
+
+21 юнiт-тест: Haversine, WGS-84→ENU, трапецiєвидне iнтегрування, метрики польоту, детекцiя фаз.
 
 ---
 

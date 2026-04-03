@@ -13,11 +13,13 @@ import streamlit as st
 import pandas as pd
 
 from src.parser import parse_bin_file
-from src.metrics import compute_flight_metrics
+from src.metrics import compute_flight_metrics, detect_flight_phases
 from src.visualization import (
     create_trajectory_figure,
     create_speed_profile,
     create_imu_comparison,
+    create_battery_chart,
+    create_2d_map,
 )
 from src.ai_report import generate_flight_report
 
@@ -185,6 +187,28 @@ if bin_path:
                 f"напруга: {bat_df['voltage'].min():.2f}–{bat_df['voltage'].max():.2f} В"
             )
 
+    # --- Flight phases ---
+    phases = detect_flight_phases(gps_df)
+    if phases:
+        st.header("Фази польоту")
+        phase_names = {"takeoff": "Злiт", "cruise": "Круїз", "hover": "Зависання", "landing": "Посадка"}
+        phase_colors = {"takeoff": "🟢", "cruise": "🔵", "hover": "🟠", "landing": "🔴"}
+        cols = st.columns(len(phases))
+        for i, ph in enumerate(phases):
+            cols[i].metric(
+                f"{phase_colors.get(ph['phase'], '')} {phase_names.get(ph['phase'], ph['phase'])}",
+                f"{ph['duration']} с",
+                delta=f"{ph['start']:.0f}–{ph['end']:.0f} с",
+                delta_color="off",
+            )
+
+    # --- 2D Map ---
+    st.header("2D-карта траєкторiї")
+    flight_map = create_2d_map(gps_df, phases if phases else None)
+    if flight_map:
+        from streamlit_folium import st_folium
+        st_folium(flight_map, width=None, height=450, returned_objects=[])
+
     # --- 3D Trajectory ---
     st.header("3D-траєкторiя (ENU)")
     fig_3d = create_trajectory_figure(
@@ -214,6 +238,12 @@ if bin_path:
     if not imu_vel.empty:
         fig_imu = create_imu_comparison(gps_df, imu_vel, speed_unit=speed_unit)
         st.plotly_chart(fig_imu, width="stretch", key="chart_imu")
+
+    # --- Battery ---
+    if not bat_df.empty:
+        st.header("Батарея")
+        fig_bat = create_battery_chart(bat_df)
+        st.plotly_chart(fig_bat, width="stretch", key="chart_bat")
 
     # --- AI Report ---
     st.header("AI-аналiз польоту")
