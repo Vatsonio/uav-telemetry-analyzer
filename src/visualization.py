@@ -295,9 +295,9 @@ def create_trajectory_figure(
     fig.update_layout(
         title="",
         scene=dict(
-            xaxis_title="East (м)",
-            yaxis_title="North (м)",
-            zaxis_title=z_label,
+            xaxis=dict(title="East (м)", showspikes=False),
+            yaxis=dict(title="North (м)", showspikes=False),
+            zaxis=dict(title=z_label, showspikes=False),
             aspectmode="data",
         ),
         margin=dict(l=0, r=0, t=40, b=0),
