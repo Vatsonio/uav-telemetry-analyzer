@@ -4,6 +4,8 @@
 **Версiя:** 1.8
 **Завдання:** BEST - Система аналiзу телеметрiї та 3D-вiзуалiзацiї польотiв БПЛА
 
+**TEST IT:** [https://uav-telemetry-analyzer.streamlit.app/](https://uav-telemetry-analyzer-ca5vg3dsvdb4ld4595ldxh.streamlit.app/)
+
 ---
 
 ## Опис
@@ -209,7 +211,7 @@ python -m pytest tests/ -v
 
 ## Скріншоти
 
-<img src="https://media.discordapp.net/attachments/1275919299437006910/1489263240742703124/UAV_Telemetry_Analyzer_v1.4.png?ex=69cfc7f9&is=69ce7679&hm=53c4f2f1ad1b5e38b13304fa163ce19aeb4ba5a0fe65db0e919bffd9e5f4ac2a" width="100%" alt="UAV Telemetry Analyzer v1.4">
+<img src="https://media.discordapp.net/attachments/1151832689620557876/1490451174392991986/screencapture-uav-telemetry-analyzer-ca5vg3dsvdb4ld4595ldxh-streamlit-app-2026-04-05-23_40_24.png?ex=69d41a53&is=69d2c8d3&hm=bf3751b74505c195ff1ef0dea580f3aa5de4b08984f9402d9b4644401b00d4d9" width="100%" alt="UAV Telemetry Analyzer v1.4">
 
 ## Ліцензія
 
