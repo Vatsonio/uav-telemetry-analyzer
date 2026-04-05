@@ -6,7 +6,6 @@ dist/
 build/
 .venv/
 venv/
-*.BIN
 .pytest_cache/
 .streamlit/secrets.toml
 *.log
