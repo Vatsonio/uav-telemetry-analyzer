@@ -19,9 +19,11 @@ from src.visualization import (
     create_speed_profile,
     create_imu_comparison,
     create_battery_chart,
+    create_gps_quality_chart,
+    create_acceleration_chart,
     create_2d_map,
 )
-from src.ai_report import generate_flight_report
+from src.ai_report import generate_flight_report, detect_anomalies, generate_pdf_report
 
 # --- Page config ---
 st.set_page_config(
@@ -47,9 +49,18 @@ source = st.sidebar.radio(
 
 bin_path = None
 
+bin_path_2 = None  # Другий файл для порівняння
+
 if source == "Локальнi файли" and local_bins:
     selected_file = st.sidebar.selectbox("Оберiть лог-файл:", local_bins)
     bin_path = os.path.join(data_dir, selected_file)
+    # Порівняння двох польотів
+    if len(local_bins) > 1:
+        compare = st.sidebar.checkbox("Порiвняти з iншим польотом")
+        if compare:
+            other_bins = [f for f in local_bins if f != selected_file]
+            selected_file_2 = st.sidebar.selectbox("Другий лог-файл:", other_bins)
+            bin_path_2 = os.path.join(data_dir, selected_file_2)
 elif source == "Завантажити файл":
     uploaded = st.sidebar.file_uploader("Завантажте .BIN файл", type=["bin", "BIN"])
     if uploaded:
@@ -245,6 +256,16 @@ if bin_path:
         fig_bat = create_battery_chart(bat_df)
         st.plotly_chart(fig_bat, width="stretch", key="chart_bat")
 
+    # --- GPS Quality ---
+    st.header("Якiсть GPS-сигналу")
+    fig_gps_q = create_gps_quality_chart(gps_df)
+    st.plotly_chart(fig_gps_q, width="stretch", key="chart_gps_quality")
+
+    # --- Acceleration profile ---
+    st.header("Профiль прискорення")
+    fig_acc = create_acceleration_chart(imu_df)
+    st.plotly_chart(fig_acc, width="stretch", key="chart_acc")
+
     # --- AI Report ---
     st.header("AI-аналiз польоту")
     if st.button("Згенерувати звiт"):
@@ -253,8 +274,12 @@ if bin_path:
                 metrics, gps_df, info,
                 api_key=gemini_key or None,
                 bat_df=bat_df if not bat_df.empty else None,
+                phases=phases if phases else None,
             )
+        st.session_state["ai_report"] = report
         st.markdown(report)
+    elif "ai_report" in st.session_state:
+        st.markdown(st.session_state["ai_report"])
 
     # --- Export ---
     st.sidebar.subheader("Експорт")
@@ -274,6 +299,42 @@ if bin_path:
         mime="text/csv",
     )
 
+    # PDF-звіт
+    anomalies = detect_anomalies(gps_df, metrics)
+    ai_text = st.session_state.get("ai_report")
+
+    if st.sidebar.button("Згенерувати PDF"):
+        with st.spinner("Генерацiя PDF з графiками..."):
+            pdf_figures = {
+                "speed_profile": fig_speed,
+                "gps_quality": fig_gps_q,
+                "acceleration": fig_acc,
+            }
+            if not imu_vel.empty:
+                pdf_figures["imu_comparison"] = fig_imu
+            if not bat_df.empty:
+                pdf_figures["battery"] = fig_bat
+            try:
+                pdf_bytes = generate_pdf_report(
+                    metrics, info, anomalies,
+                    bat_df=bat_df if not bat_df.empty else None,
+                    phases=phases if phases else None,
+                    ai_report_text=ai_text,
+                    figures=pdf_figures,
+                )
+                st.session_state["pdf_bytes"] = pdf_bytes
+            except Exception as e:
+                st.sidebar.warning(f"PDF помилка: {e}")
+
+    if "pdf_bytes" in st.session_state:
+        st.sidebar.download_button(
+            "Завантажити звiт (PDF)",
+            st.session_state["pdf_bytes"],
+            file_name="flight_report.pdf",
+            mime="application/pdf",
+            key="download_pdf",
+        )
+
     # --- Raw data ---
     with st.expander("Сирi данi GPS"):
         st.dataframe(gps_df.drop(columns=["time_us", "instance"], errors="ignore"), width="stretch")
@@ -284,6 +345,37 @@ if bin_path:
     if not bat_df.empty:
         with st.expander("Сирi данi батареї"):
             st.dataframe(bat_df.drop(columns=["time_us"], errors="ignore"), width="stretch")
+
+    # --- Flight comparison ---
+    if bin_path_2:
+        st.header("Порiвняння польотiв")
+        cache_key_2 = f"parsed_{bin_path_2}"
+        if cache_key_2 not in st.session_state:
+            with st.spinner("Парсинг другого лог-файлу..."):
+                data2, metrics2 = _load_and_process(bin_path_2)
+            st.session_state[cache_key_2] = (data2, metrics2)
+        data2, metrics2 = st.session_state[cache_key_2]
+
+        compare_keys = [
+            ("total_duration", "Тривалiсть (с)"),
+            ("total_distance", "Дистанцiя (м)"),
+            ("max_horizontal_speed", "Макс. гориз. швидк. (м/с)"),
+            ("max_vertical_speed", "Макс. верт. швидк. (м/с)"),
+            ("max_acceleration", "Макс. прискорення (м/с²)"),
+            ("max_altitude_gain", "Набiр висоти (м)"),
+        ]
+
+        comp_data = {"Метрика": [], "Полiт 1": [], "Полiт 2": [], "Рiзниця": []}
+        for key, label in compare_keys:
+            v1 = metrics.get(key, 0)
+            v2 = metrics2.get(key, 0)
+            comp_data["Метрика"].append(label)
+            comp_data["Полiт 1"].append(round(v1, 2))
+            comp_data["Полiт 2"].append(round(v2, 2))
+            diff = v1 - v2
+            comp_data["Рiзниця"].append(f"{diff:+.2f}")
+
+        st.dataframe(pd.DataFrame(comp_data), hide_index=True, width="stretch")
 
 else:
     st.info("Оберiть або завантажте .BIN файл для початку аналiзу.")

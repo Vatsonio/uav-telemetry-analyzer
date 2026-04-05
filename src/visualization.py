@@ -477,6 +477,102 @@ def create_battery_chart(bat_df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def create_gps_quality_chart(gps_df: pd.DataFrame) -> go.Figure:
+    """Графік якості GPS-сигналу: HDOP та кількість супутників у часі."""
+    if gps_df.empty:
+        return go.Figure()
+
+    has_hdop = "hdop" in gps_df.columns and gps_df["hdop"].sum() > 0
+    has_nsats = "nsats" in gps_df.columns and gps_df["nsats"].sum() > 0
+
+    if not has_hdop and not has_nsats:
+        fig = go.Figure()
+        fig.add_annotation(text="Дані GPS-якості відсутні", showarrow=False)
+        return fig
+
+    t = gps_df["time_s"].values - gps_df["time_s"].values[0]
+    fig = go.Figure()
+
+    if has_nsats:
+        fig.add_trace(go.Scatter(
+            x=t, y=gps_df["nsats"].values,
+            name="Супутники",
+            line=dict(color="green", width=2),
+            fill="tozeroy",
+            fillcolor="rgba(0,128,0,0.1)",
+            hovertemplate="Час: %{x:.1f} с<br>Супутники: %{y}<extra></extra>",
+        ))
+
+    if has_hdop:
+        fig.add_trace(go.Scatter(
+            x=t, y=gps_df["hdop"].values,
+            name="HDOP",
+            yaxis="y2" if has_nsats else "y",
+            line=dict(color="orange", width=2),
+            hovertemplate="Час: %{x:.1f} с<br>HDOP: %{y:.1f}<extra></extra>",
+        ))
+
+    layout = dict(
+        title="Якість GPS-сигналу",
+        xaxis_title="Час (с)",
+        height=350,
+        legend=dict(x=0, y=1.12, orientation="h"),
+    )
+    if has_nsats:
+        layout["yaxis"] = dict(title="Кількість супутників")
+    if has_hdop and has_nsats:
+        layout["yaxis2"] = dict(title="HDOP", overlaying="y", side="right")
+    elif has_hdop:
+        layout["yaxis"] = dict(title="HDOP")
+
+    fig.update_layout(**layout)
+    return fig
+
+
+def create_acceleration_chart(imu_df: pd.DataFrame) -> go.Figure:
+    """Графік модуля прискорення (без гравітації) та його компонент у часі."""
+    if imu_df.empty:
+        return go.Figure()
+
+    t = imu_df["time_s"].values - imu_df["time_s"].values[0]
+
+    acc_mag = np.sqrt(
+        imu_df["acc_x"].values ** 2
+        + imu_df["acc_y"].values ** 2
+        + imu_df["acc_z"].values ** 2
+    )
+    net_acc = np.abs(acc_mag - 9.81)
+
+    # Згладжування для читабельності (IMU має високу частоту)
+    window = max(len(t) // 200, 3)
+    if window % 2 == 0:
+        window += 1
+    net_smooth = pd.Series(net_acc).rolling(window=window, center=True, min_periods=1).mean().values
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=t, y=net_smooth,
+        name="|Прискорення| (м/с²)",
+        line=dict(color="red", width=2),
+        fill="tozeroy",
+        fillcolor="rgba(255,0,0,0.08)",
+        hovertemplate="Час: %{x:.1f} с<br>Прискорення: %{y:.2f} м/с²<extra></extra>",
+    ))
+
+    # Поріг аномалії
+    p95 = float(np.percentile(net_acc, 95))
+    fig.add_hline(y=p95, line_dash="dash", line_color="gray",
+                  annotation_text=f"P95: {p95:.1f} м/с²", annotation_position="top right")
+
+    fig.update_layout(
+        title="Профіль прискорення (без гравітації)",
+        xaxis_title="Час (с)",
+        yaxis_title="Прискорення (м/с²)",
+        height=350,
+    )
+    return fig
+
+
 def create_2d_map(gps_df: pd.DataFrame, phases: list[dict] | None = None):
     """Створює 2D карту траєкторії з Folium."""
     import folium

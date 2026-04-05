@@ -222,8 +222,7 @@ def _compute_speed_from_positions(gps_df: pd.DataFrame) -> pd.DataFrame:
     times = gps_df["time_us"].values
 
     # Згладжуємо висоту медіаною вікном 3 щоб прибрати стрибки EKF конвергенції
-    import pandas as _pd
-    alts_smooth = _pd.Series(alts).rolling(window=3, center=True, min_periods=1).median().values
+    alts_smooth = pd.Series(alts).rolling(window=3, center=True, min_periods=1).median().values
 
     for i in range(1, len(gps_df)):
         dt = (times[i] - times[i - 1]) / 1e6
