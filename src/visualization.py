@@ -34,8 +34,8 @@ def _get_terrain_grid(
         # Сітка GPS координат навколо траєкторії
         lat_min, lat_max = lats.min(), lats.max()
         lng_min, lng_max = lngs.min(), lngs.max()
-        lat_pad = max((lat_max - lat_min) * 0.5, 0.002)
-        lng_pad = max((lng_max - lng_min) * 0.5, 0.002)
+        lat_pad = max((lat_max - lat_min) * 0.15, 0.0005)
+        lng_pad = max((lng_max - lng_min) * 0.15, 0.0005)
 
         grid_n = 30
         grid_lats = np.linspace(lat_min - lat_pad, lat_max + lat_pad, grid_n)
@@ -220,12 +220,14 @@ def create_trajectory_figure(
             opacity=0.70 if terrain_ok else 0.30,
             name="Рельєф" if terrain_ok else "Поверхня землі",
             hoverinfo="skip",
+            contours=dict(
+                x=dict(highlight=False, show=False),
+                y=dict(highlight=False, show=False),
+                z=dict(highlight=False, show=False),
+            ),
         )
         if terrain_ok:
             surface_kwargs["surfacecolor"] = zz
-            surface_kwargs["contours"] = dict(
-                z=dict(show=True, usecolormap=True, project_z=True, highlightcolor="white", size=1),
-            )
         fig.add_trace(go.Surface(**surface_kwargs))
 
         # Тіньова проекція траєкторії на terrain
@@ -268,6 +270,7 @@ def create_trajectory_figure(
         customdata=custom_data,
         hovertemplate=hovertemplate,
         name="Траєкторія",
+        projection=dict(x=dict(show=False), y=dict(show=False), z=dict(show=False)),
     ))
 
     # Маркери старту/фінішу
@@ -292,12 +295,22 @@ def create_trajectory_figure(
         ))
 
     z_label = "Alt AMSL (м)" if alt_mode == "amsl" else "Up (м)"
+
+    # Діапазон осей по траєкторії з невеликим padding
+    e_pad = max((east.max() - east.min()) * 0.1, 5)
+    n_pad = max((north.max() - north.min()) * 0.1, 5)
+    u_pad = max((up.max() - up.min()) * 0.1, 2)
+
+    axis_common = dict(showspikes=False, spikethickness=0)
     fig.update_layout(
         title="",
         scene=dict(
-            xaxis=dict(title="East (м)", showspikes=False),
-            yaxis=dict(title="North (м)", showspikes=False),
-            zaxis=dict(title=z_label, showspikes=False),
+            xaxis=dict(title="East (м)", **axis_common,
+                       range=[east.min() - e_pad, east.max() + e_pad]),
+            yaxis=dict(title="North (м)", **axis_common,
+                       range=[north.min() - n_pad, north.max() + n_pad]),
+            zaxis=dict(title=z_label, **axis_common,
+                       range=[min(up.min(), -5) - u_pad, up.max() + u_pad]),
             aspectmode="data",
         ),
         margin=dict(l=0, r=0, t=40, b=0),

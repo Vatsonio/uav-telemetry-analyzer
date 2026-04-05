@@ -268,11 +268,17 @@ if bin_path:
 
     # --- AI Report ---
     st.header("AI-аналiз польоту")
-    if st.button("Згенерувати звiт"):
+    ai_col1, ai_col2 = st.columns([3, 1])
+    with ai_col1:
+        gen_btn = st.button("Згенерувати звiт")
+    with ai_col2:
+        use_template = st.checkbox("Без API (шаблон)", value=not bool(gemini_key))
+
+    if gen_btn:
         with st.spinner("Генерацiя звiту..."):
             report = generate_flight_report(
                 metrics, gps_df, info,
-                api_key=gemini_key or None,
+                api_key=None if use_template else (gemini_key or None),
                 bat_df=bat_df if not bat_df.empty else None,
                 phases=phases if phases else None,
             )
@@ -304,16 +310,28 @@ if bin_path:
     ai_text = st.session_state.get("ai_report")
 
     if st.sidebar.button("Згенерувати PDF"):
-        with st.spinner("Генерацiя PDF з графiками..."):
-            pdf_figures = {
-                "speed_profile": fig_speed,
-                "gps_quality": fig_gps_q,
-                "acceleration": fig_acc,
-            }
+        with st.sidebar.status("Генерацiя PDF...", expanded=True) as status:
+            pdf_figures = {}
+
+            status.update(label="Рендеринг графiкiв...")
+            status.write("Профiль швидкостi...")
+            pdf_figures["speed_profile"] = fig_speed
+
+            status.write("Якiсть GPS...")
+            pdf_figures["gps_quality"] = fig_gps_q
+
+            status.write("Профiль прискорення...")
+            pdf_figures["acceleration"] = fig_acc
+
             if not imu_vel.empty:
+                status.write("GPS vs IMU...")
                 pdf_figures["imu_comparison"] = fig_imu
             if not bat_df.empty:
+                status.write("Батарея...")
                 pdf_figures["battery"] = fig_bat
+
+            status.update(label="Формування PDF...")
+            status.write("Метрики та таблицi...")
             try:
                 pdf_bytes = generate_pdf_report(
                     metrics, info, anomalies,
@@ -323,7 +341,9 @@ if bin_path:
                     figures=pdf_figures,
                 )
                 st.session_state["pdf_bytes"] = pdf_bytes
+                status.update(label="PDF готовий!", state="complete", expanded=False)
             except Exception as e:
+                status.update(label=f"PDF помилка: {e}", state="error")
                 st.sidebar.warning(f"PDF помилка: {e}")
 
     if "pdf_bytes" in st.session_state:
